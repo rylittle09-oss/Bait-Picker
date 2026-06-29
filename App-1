@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bass Fishing Bait Picker</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen py-8 px-4 flex justify-center items-center">
+
+    <div class="max-w-xl w-full bg-slate-900 rounded-2xl shadow-2xl p-6 border border-slate-800">
+        <div class="flex items-center justify-between mb-2">
+            <h1 class="text-3xl font-black tracking-tight text-blue-400 flex items-center gap-2">
+                🎣 Bass Bait Picker
+            </h1>
+            <span class="bg-blue-950 text-blue-400 text-xs font-bold px-2.5 py-1 rounded-full border border-blue-800">SMART GUIDE</span>
+        </div>
+        <p class="text-sm text-slate-400 mb-6">Tell us where you are and what the water looks like, and we'll pick the 3 best baits for your trip.</p>
+
+        <!-- STEP 1: AUTO DETECTED REGION BANNER -->
+        <div class="mb-4 p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between text-xs">
+            <span class="text-slate-400 uppercase font-bold tracking-wider">Your Fishing Region:</span>
+            <span id="regionBadge" class="bg-slate-800 text-slate-300 px-3 py-1 rounded-md font-mono font-bold uppercase">Awaiting Location</span>
+        </div>
+
+        <!-- STEP 2: WATER PROFILE DATA -->
+        <div class="mb-4">
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">What does the water look like?</label>
+            <select id="waterSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-sm focus:outline-none focus:border-blue-500 text-white">
+                <option value="stained_pond">Shallow Pond / Stained, Murky Water</option>
+                <option value="clear_reservoir">Deep Clear Reservoir / Clear Lake</option>
+                <option value="muddy_river">River System / Highly Muddy Water</option>
+            </select>
+        </div>
+
+        <!-- STEP 3: LOCATION ENGINE -->
+        <div class="mb-6">
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Where are you fishing?</label>
+            <div id="locationContainer" class="p-4 bg-slate-950 rounded-xl border border-slate-800">
+                <div class="flex gap-4 border-b border-slate-800 pb-3 mb-3 text-xs font-bold">
+                    <button id="modeAutoBtn" class="text-blue-400 uppercase tracking-wider border-b-2 border-blue-500 pb-1">📡 Use Current Location</button>
+                    <button id="modeManualBtn" class="text-slate-500 hover:text-slate-300 uppercase tracking-wider pb-1">✍️ Type Location Manually</button>
+                </div>
+
+                <div id="interfaceAuto" class="flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <p id="gpsStatusText" class="text-xs text-slate-400">Ready to look up your local weather and region.</p>
+                    <button id="triggerGpsBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-1.5 px-4 rounded-lg text-xs transition whitespace-nowrap shadow-md">Find My Location</button>
+                </div>
+
+                <div id="interfaceManual" class="hidden flex gap-2">
+                    <input type="text" id="manualLocationInput" placeholder="Enter City, State or Zip Code" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-white text-xs focus:outline-none focus:border-blue-500">
+                    <button id="searchManualBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 rounded-lg text-xs transition">Set</button>
+                </div>
+
+                <div id="locationSuccessBanner" class="hidden text-xs font-semibold text-emerald-400 flex items-center gap-2">
+                    <span>⚡ Location Saved:</span> <span id="successLocationName" class="text-white font-mono">--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ACTION BUTTON -->
+        <button id="getRecommendationBtn" disabled class="w-full bg-slate-800 text-slate-600 font-bold py-3.5 px-4 rounded-xl cursor-not-allowed transition duration-200 border border-slate-700/50 uppercase tracking-widest text-sm">
+            Waiting for Location...
+        </button>
+
+        <!-- LOADING AND OUTPUT -->
+        <div id="loading" class="hidden mt-6 text-center text-blue-400 text-sm font-semibold animate-pulse">
+            Checking weather and sorting tackle database...
+        </div>
+
+        <div id="result" class="hidden mt-6 space-y-4">
+            <!-- Weather Details -->
+            <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center text-xs font-mono">
+                <span class="text-slate-400">Today's Weather:</span>
+                <span id="weatherDetails" class="text-blue-400 font-bold">--</span>
+            </div>
+            
+            <h3 class="text-xs font-black uppercase tracking-widest text-slate-400 mb-2">Your 3 Best Bait Options</h3>
+            
+            <div id="lureContainer" class="space-y-3">
+                <!-- Filled dynamically by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let userLatitude = null;
+        let userLongitude = null;
+        let detectedRegion = "unknown";
+
+        const modeAutoBtn = document.getElementById('modeAutoBtn');
+        const modeManualBtn = document.getElementById('modeManualBtn');
+        const interfaceAuto = document.getElementById('interfaceAuto');
+        const interfaceManual = document.getElementById('interfaceManual');
+        const locationSuccessBanner = document.getElementById('locationSuccessBanner');
+        const locationContainer = document.getElementById('locationContainer');
+        const triggerGpsBtn = document.getElementById('triggerGpsBtn');
+        const gpsStatusText = document.getElementById('gpsStatusText');
+        const manualLocationInput = document.getElementById('manualLocationInput');
+        const searchManualBtn = document.getElementById('searchManualBtn');
+        const successLocationName = document.getElementById('successLocationName');
+        const getRecommendationBtn = document.getElementById('getRecommendationBtn');
+        const regionBadge = document.getElementById('regionBadge');
+
+        const regionMap = {
+            southeast: ["GA", "FL", "AL", "MS", "SC", "NC", "TN", "LA", "Georgia", "Florida", "Alabama", "Mississippi", "South Carolina", "North Carolina", "Tennessee", "Louisiana"],
+            northeast: ["NY", "PA", "OH", "MI", "WI", "IL", "IN", "VT", "NH", "ME", "MA", "CT", "RI", "New York", "Pennsylvania", "Ohio", "Michigan", "Wisconsin", "Illinois", "Indiana", "Vermont", "Maine"],
+            texas_ozarks: ["TX", "AR", "MO", "OK", "KS", "Texas", "Arkansas", "Missouri", "Oklahoma", "Kansas"],
+            west_coast: ["CA", "OR", "WA", "AZ", "NV", "UT", "ID", "CO", "California", "Oregon", "Washington", "Arizona", "Nevada", "Utah", "Idaho", "Colorado"]
+        };
+
+        function calculateRegionFromState(stateName) {
+            if (!stateName) return "southeast";
+            for (let [regionKey, states] of Object.entries(regionMap)) {
+                if (states.some(s => stateName.toLowerCase().includes(s.toLowerCase()))) return regionKey;
+            }
+            return "southeast"; 
+        }
+
+        function updateRegionUI(regionKey, displayState) {
+            detectedRegion = regionKey;
+            let displayLabels = {
+                southeast: "🌴 Southeast",
+                northeast: "⛰️ Northeast / Great Lakes",
+                texas_ozarks: "🪵 Texas & Ozarks",
+                west_coast: "💎 West Coast Finesse"
+            };
+            regionBadge.innerText = `${displayLabels[regionKey] || "Standard Strains"} (${displayState})`;
+            regionBadge.className = "bg-blue-950 text-blue-400 px-3 py-1 rounded-md font-mono font-bold uppercase border border-blue-800";
+        }
+
+        modeAutoBtn.addEventListener('click', () => { resetLocationData(); modeAutoBtn.className = "text-blue-400 uppercase tracking-wider border-b-2 border-blue-500 pb-1"; modeManualBtn.className = "text-slate-500 hover:text-slate-300 uppercase tracking-wider pb-1"; interfaceAuto.classList.remove('hidden'); interfaceManual.classList.add('hidden'); });
+        modeManualBtn.addEventListener('click', () => { resetLocationData(); modeManualBtn.className = "text-blue-400 uppercase tracking-wider border-b-2 border-blue-500 pb-1"; modeAutoBtn.className = "text-slate-500 hover:text-slate-300 uppercase tracking-wider pb-1"; interfaceManual.classList.remove('hidden'); interfaceAuto.classList.add('hidden'); });
+
+        triggerGpsBtn.addEventListener('click', () => {
+            gpsStatusText.innerText = "Connecting to GPS...";
+            if (!navigator.geolocation) { handleGpsFailure("GPS not supported on this device"); return; }
+
+            navigator.geolocation.getCurrentPosition(
+                async (pos) => {
+                    userLatitude = pos.coords.latitude;
+                    userLongitude = pos.coords.longitude;
+                    try {
+                        let revRes = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${userLatitude}&longitude=${userLongitude}&localityLanguage=en`);
+                        let revData = await revRes.json();
+                        let state = revData.principalSubdivision || "Georgia";
+                        let region = calculateRegionFromState(state);
+                        updateRegionUI(region, state);
+                        lockInSuccess(`${revData.city || 'Coordinates Locked'}`);
+                    } catch(e) {
+                        updateRegionUI("southeast", "GA");
+                        lockInSuccess(`Location Saved`);
+                    }
+                },
+                (err) => { handleGpsFailure("Location permission denied"); },
+                { timeout: 5000 }
+            );
+        });
+
+        searchManualBtn.addEventListener('click', async () => {
+            const query = manualLocationInput.value.trim();
+            if (!query) return;
+            try {
+                searchManualBtn.innerText = "Finding...";
+                const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`);
+                const data = await res.json();
+                if (data.results && data.results.length > 0) {
+                    const place = data.results[0];
+                    userLatitude = place.latitude;
+                    userLongitude = place.longitude;
+                    let state = place.admin1 || "";
+                    let region = calculateRegionFromState(state);
+                    updateRegionUI(region, state || "Manual");
+                    lockInSuccess(`${place.name}, ${place.admin1 || ''}`);
+                } else {
+                    alert("Could not find that location. Please try another city or zip code.");
+                    searchManualBtn.innerText = "Set";
+                }
+            } catch (err) { alert("Network connection issue."); }
+        });
+
+        function handleGpsFailure(reason) {
+            gpsStatusText.innerHTML = `⚠️ <span class="text-rose-400">${reason}</span>. Switching to manual typing...`;
+            setTimeout(() => { modeManualBtn.click(); manualLocationInput.focus(); }, 1500);
+        }
+
+        function lockInSuccess(displayName) {
+            interfaceAuto.classList.add('hidden'); interfaceManual.classList.add('hidden');
+            locationSuccessBanner.classList.remove('hidden');
+            successLocationName.innerText = displayName;
+            locationContainer.className = "p-4 bg-emerald-950/20 border border-emerald-900 rounded-xl";
+            getRecommendationBtn.disabled = false;
+            getRecommendationBtn.innerText = "Find My Baits!";
+            getRecommendationBtn.className = "w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold py-3.5 px-4 rounded-xl transition duration-200 shadow-xl cursor-pointer text-sm uppercase tracking-widest text-center";
+        }
+
+        function resetLocationData() {
+            userLatitude = null; userLongitude = null;
+            searchManualBtn.innerText = "Set";
+            gpsStatusText.innerText = "Ready to look up your local weather and region.";
+            locationSuccessBanner.classList.add('hidden');
+            regionBadge.innerText = "Awaiting Location";
+            regionBadge.className = "bg-slate-800 text-slate-300 px-3 py-1 rounded-md font-mono text-xs";
+            locationContainer.className = "p-4 bg-slate-950 rounded-xl border border-slate-800";
+            getRecommendationBtn.disabled = true;
+            getRecommendationBtn.innerText = "Waiting for Location...";
+            getRecommendationBtn.className = "w-full bg-slate-800 text-slate-600 font-bold py-3.5 px-4 rounded-xl cursor-not-allowed border border-slate-700/50 uppercase tracking-widest text-sm";
+        }
+
+        // TACKLE CATALOG
+        const lureMasterDatabase = [
+            {
+                name: "Hollow Body Frog (Walking Style)",
+                baseColor: "Solid Black (Overcast) or Chartreuse Belly (Stained Water)",
+                rigging: "65lb Braided Line, Heavy Action Casting Rod",
+                strategy: "Fish over mats, thick lily pads, and grass canopy openings. Let it pause inside holes.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (temp >= 75) s += 45; if (clouds > 60) s += 15;
+                    if (water === "stained_pond") s += 25; if (region === "southeast") s += 20; if (wind < 8) s += 10;
+                    return s;
+                }
+            },
+            {
+                name: "ChatterBait Bladed Jig (1/2 oz JackHammer)",
+                baseColor: "Green Pumpkin / Chartreuse (Stained Water) or White (Clear Water)",
+                rigging: "17lb Fluorocarbon, Medium-Heavy Action Rod",
+                strategy: "Rip hard out of submerged weed beds or along shallow mud banks.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (temp >= 53 && temp < 74) s += 40; if (wind > 9) s += 20;
+                    if (water !== "clear_reservoir") s += 20; if (region === "southeast") s += 15;
+                    return s;
+                }
+            },
+            {
+                name: "Whopper Plopper (Chopper-Style Topwater)",
+                baseColor: "Bone White (Low Light/Overcast) or Loon Black (Choppy Water)",
+                rigging: "40lb Braided Line, Medium-Heavy Action Rod",
+                strategy: "Reel with a steady pace across shallow flats or next to weed lines. The spinning tail creates a loud splash that draws fish from far away.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (temp >= 62 && temp < 85) s += 35; if (wind >= 4 && wind <= 12) s += 25;
+                    if (clouds > 40) s += 15; if (water === "stained_pond") s += 15;
+                    return s;
+                }
+            },
+            {
+                name: "Zara Spook (Walking Topwater)",
+                baseColor: "Chrome (Bright Skies) or Bone White (Cloudy/Slight Ripple)",
+                rigging: "15lb Monofilament or 30lb Braid with a Monofilament Leader",
+                strategy: "Use a continuous 'walk-the-dog' side-to-side cadence over points and flats during morning, evening, or overcast hours.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (temp >= 65) s += 35; if (wind < 7) s += 25;
+                    if (water === "clear_reservoir") s += 20; if (region === "texas_ozarks") s += 15;
+                    return s;
+                }
+            },
+            {
+                name: "Rooster Tail / Inline Spinner (1/4 oz)",
+                baseColor: "White or Chartreuse with a Silver Blade",
+                rigging: "8lb Monofilament Line, Medium Spinning Rod & Reel",
+                strategy: "Highly reliable for basic spots. Cast and reel continuously through pond pockets, small creeks, or along shallow bank brush.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (water === "stained_pond") s += 40;
+                    if (temp >= 50 && temp <= 80) s += 20; if (wind < 10) s += 10;
+                    return s;
+                }
+            },
+            {
+                name: "Paddletail Swimbait (4.3\" Keitech)",
+                baseColor: "Electric Shad (Clear Water) or Sight Flash (Stained Water)",
+                rigging: "3/8 oz Swimbait Jig Head, 12lb Fluorocarbon",
+                strategy: "Reel slowly and smoothly along bottom drops, deep ledges, or count it down to catch fish hanging out in deep schools.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (water === "clear_reservoir") s += 30; if (temp >= 52 && temp < 78) s += 30;
+                    if (region === "west_coast" || region === "northeast") s += 20;
+                    return s;
+                }
+            },
+            {
+                name: "Chrome Flutter Spoon",
+                baseColor: "Bright Chrome or Silver Flash",
+                rigging: "20lb Fluorocarbon, Heavy Action Baitcasting Rod",
+                strategy: "Cast out over deep structure, rip it upward 4 to 5 feet with your rod, then let it fall completely loose to mimic a dying shad.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (region === "texas_ozarks") s += 35;
+                    if (water === "clear_reservoir") s += 25; if (temp >= 70 || temp < 50) s += 25;
+                    return s;
+                }
+            },
+            {
+                name: "Drop Shot Rig (6\" Finesse Worm)",
+                baseColor: "Morning Dawn (Clear Water) or Junebug (Darker Water)",
+                rigging: "1/4 oz Drop Shot Weight, 6lb Fluorocarbon Line",
+                strategy: "Drop vertically directly down over deep offshore brush piles or rocky humps. Gently wiggle without lifting the weight.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (water === "clear_reservoir") s += 35; if (region === "west_coast") s += 30;
+                    if (clouds < 35) s += 15; if (temp > 74 || temp < 52) s += 20;
+                    return s;
+                }
+            },
+            {
+                name: "3/8 oz Football Jig (With Craw Trailer)",
+                baseColor: "Green Pumpkin Brown (Clear Water) or Black/Blue (Muddy Water)",
+                rigging: "15lb Fluorocarbon, Heavy Action Baitcaster",
+                strategy: "Keep constant contact with the bottom, dragging it slowly over deep rocks, gravel patches, or steep bluffs.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (water === "clear_reservoir") s += 20; if (region === "texas_ozarks") s += 30;
+                    if (temp < 55) s += 30;
+                    return s;
+                }
+            },
+            {
+                name: "Wacky Rigged 5\" Senko (Stick Worm)",
+                baseColor: "Green Pumpkin / Watermelon Laminate",
+                rigging: "O-Ring Configuration, Size 1 Wacky Hook, 8lb Line",
+                strategy: "Throw directly against shallow boat docks or weed edges. Let it sink on a completely loose, slack line with no extra movement.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (temp >= 62 && temp <= 76) s += 40; if (wind < 7) s += 25;
+                    if (water === "stained_pond") s += 15; if (clouds < 40) s += 15;
+                    return s;
+                }
+            },
+            {
+                name: "Squarebill Crankbait (1.5 Silent)",
+                baseColor: "Sexy Shad (Clear Water) or Chartreuse Black Back (Muddy Water)",
+                rigging: "12lb Fluorocarbon, Medium Action Cranking Rod",
+                strategy: "Reel it in fast and crash it directly into shallow wood stumps, fallen trees, or rocks to trigger aggressive reaction strikes.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (temp >= 56 && temp < 78) s += 25;
+                    if (water === "muddy_river" || water === "stained_pond") s += 25; if (wind >= 8) s += 15;
+                    return s;
+                }
+            },
+            {
+                name: "3\" Fine Hair Jig (Marabou)",
+                baseColor: "Solid Black or Dark Olive Shiner",
+                rigging: "4lb - 6lb Fluorocarbon, 7'6\" Light Spinning Rod",
+                strategy: "Cast over shallow clear rock flats or deep boulder sections. Reel it in steadily and smoothly without shaking your rod tip.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (region === "northeast") s += 50; if (temp < 52) s += 30;
+                    if (water === "clear_reservoir") s += 20;
+                    return s;
+                }
+            },
+            {
+                name: "10\" Ribbon-Tail Worm (Texas Rigged)",
+                baseColor: "Plum or Junebug",
+                rigging: "3/8 oz Tungsten Weight, 5/0 Wide Gap Hook, 17lb Fluorocarbon",
+                strategy: "Slowly crawl and hop across deep river ledges or offshore lake brush piles during long hot summer afternoons.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (temp >= 76) s += 35; if (region === "texas_ozarks" || region === "southeast") s += 25;
+                    return s;
+                }
+            },
+            {
+                name: "Texas-Rigged Creature Bait (Brush Hog / Craw)",
+                baseColor: "Green Pumpkin (Clear Water) or Junebug (Darker Water)",
+                rigging: "1/4 oz Tungsten Weight, 4/0 Offset Hook, 15lb Fluorocarbon",
+                strategy: "Pitch and flip directly into flooded bushes, shoreline trees, or right under docks. Lift your rod tip up and drop down slowly.",
+                calcScore: (temp, clouds, wind, region, water) => {
+                    let s = 0; if (temp >= 54 && temp < 75) s += 25; if (water !== "clear_reservoir") s += 15;
+                    s += 20;
+                    return s;
+                }
+            }
+        ];
+
+        getRecommendationBtn.addEventListener('click', async () => {
+            if (!userLatitude || !userLongitude) return;
+            const loadingDiv = document.getElementById('loading');
+            const resultDiv = document.getElementById('result');
+            const lureContainer = document.getElementById('lureContainer');
+            
+            loadingDiv.classList.remove('hidden'); resultDiv.classList.add('hidden');
+            lureContainer.innerHTML = "";
+
+            try {
+                const response = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${userLatitude}&longitude=${userLongitude}&current=temperature_2m,cloud_cover,wind_speed_10m&temperature_unit=fahrenheit`);
+                const data = await response.json();
+                
+                const tempF = Math.round(data.current.temperature_2m);
+                const cloudCover = data.current.cloud_cover;
+                const windSpeed = Math.round(data.current.wind_speed_10m);
+                const water = document.getElementById('waterSelect').value;
+
+                let skyCondition = cloudCover > 65 ? "Overcast" : (cloudCover > 25 ? "Partly Cloudy" : "Sunny");
+                document.getElementById('weatherDetails').innerText = `${tempF}°F | ${skyCondition} | Wind: ${windSpeed} mph`;
+
+                let scoredLures = lureMasterDatabase.map(lure => {
+                    let finalScore = lure.calcScore(tempF, cloudCover, windSpeed, detectedRegion, water);
+                    return { ...lure, score: finalScore };
+                });
+
+                scoredLures.sort((a, b) => b.score - a.score);
+                let topThree = scoredLures.slice(0, 3);
+
+                topThree.forEach((lure, idx) => {
+                    let title = idx === 0 ? "🥇 Best Choice" : (idx === 1 ? "🥈 Great Backup" : "🥉 Alternative Option");
+                    let cardHtml = `
+                        <div class="p-4 bg-gradient-to-br from-slate-950 to-slate-900 border ${idx === 0 ? 'border-blue-500/40 shadow-blue-950/40 shadow-lg' : 'border-slate-800'} rounded-xl">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-xs font-black uppercase tracking-wider ${idx === 0 ? 'text-blue-400' : 'text-slate-400'}">${title}</span>
+                                <span class="text-[10px] font-mono bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-bold">Match Score: ${lure.score} pts</span>
+                            </div>
+                            <div class="text-xl font-black text-white tracking-tight mb-2">${lure.name}</div>
+                            
+                            <div class="grid grid-cols-2 gap-2 mb-2 text-xs">
+                                <div class="p-2 bg-slate-900/60 rounded border border-slate-800/40">
+                                    <span class="block text-[10px] uppercase font-bold text-amber-500">Best Color</span>
+                                    <span class="font-semibold text-slate-200">${lure.baseColor}</span>
+                                </div>
+                                <div class="p-2 bg-slate-900/60 rounded border border-slate-800/40">
+                                    <span class="block text-[10px] uppercase font-bold text-emerald-500">Line & Rod Setup</span>
+                                    <span class="font-semibold text-slate-200">${lure.rigging}</span>
+                                </div>
+                            </div>
+                            <p class="text-xs text-slate-400 leading-relaxed"><strong class="text-slate-300">How to fish it:</strong> ${lure.strategy}</p>
+                        </div>
+                    `;
+                    lureContainer.innerHTML += cardHtml;
+                });
+
+                loadingDiv.classList.add('hidden');
+                resultDiv.classList.remove('hidden');
+
+            } catch (error) {
+                console.error(error);
+                alert("Could not load local weather data.");
+                loadingDiv.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
